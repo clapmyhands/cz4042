@@ -7,9 +7,9 @@ np.random.seed(10)
 
 epochs = 1000
 batch_size = 32
-no_hidden1 = 30  # num of neurons in hidden layer 1
+no_hidden1_values = [20, 30, 40, 50, 60]  # num of neurons in hidden layer 1
 folds = 5
-alpha_values = [0.001, 0.5 * 0.001, 0.0001, 0.5 * 0.0001, 0.00001]
+alpha = 0.00001
 
 
 # read and divide data into test and train sets
@@ -29,7 +29,7 @@ testX = f.scale_normalize(testX)
 
 len_trainX = len(trainX)
 interval = len_trainX // 5
-best_alpha = -1
+best_no_hidden1 = -1
 fold_cost = []
 best_average = 1e+15
 best_train = None
@@ -40,8 +40,8 @@ test = None
 valuesDict = {}
 plt.figure()
 
-for alpha in alpha_values:
-    print('For Alpha = %.5f' % alpha)
+for no_hidden1 in no_hidden1_values:
+    print('For hidden layer neurons = %d' % no_hidden1)
     for fold in range(folds):
         start, end = fold * interval, (fold + 1) * interval
         if (end + interval) > len_trainX:
@@ -58,26 +58,25 @@ for alpha in alpha_values:
     average_fold_cost = np.mean(fold_cost)
     if average_fold_cost < best_average:
         best_average = average_fold_cost
-        best_alpha = alpha
+        best_no_hidden1 = no_hidden1
         best_train = train
         best_test = test
         best_valuesDict = valuesDict
 
-    plt.plot(range(epochs), valuesDict['test_cost'], label='Alpha = %.5f' % alpha)
+    plt.plot(range(epochs), valuesDict['test_cost'], label='Hidden layer neurons = %d' % no_hidden1)
 
-print('Best model found at Alpha  = %.5f' % best_alpha)
+print('Best model found at hidden layer neurons  = %d' % best_no_hidden1)
 
 # Plots
 # a) Plot the training error against number of epochs for the 3-layer network.
 plt.xlabel('Time (s)')
 plt.ylabel('Mean Squared Error')
-plt.title('Validation Errors at Various Alphas')
+plt.title('Validation Errors at Various # of Hidden Layer Neurons')
 plt.legend()
-plt.savefig('partb_2a.png')
+plt.savefig('partb_3a.png')
 plt.show()
 
-train, test, valuesDict = f.function(trainX, trainY, testX, testY, no_hidden1,
-                                             best_alpha, epochs, batch_size)
+train, test, valuesDict = f.function(trainX, trainY, testX, testY, best_no_hidden1, alpha, epochs, batch_size)
 
 
 # b) Plot the final test errors of prediction by the network.
@@ -85,7 +84,7 @@ plt.figure()
 plt.plot(range(epochs), valuesDict['test_cost'], label='test error')
 plt.xlabel('Time (s)')
 plt.ylabel('Mean Squared Error')
-plt.title('Test Errors at Alpha = %.5f' % best_alpha)
+plt.title('Test Errors at # Hidden Layer Neurons = %d' % best_no_hidden1)
 plt.legend()
-plt.savefig('partb_2b.png')
+plt.savefig('partb_3b.png')
 plt.show()
