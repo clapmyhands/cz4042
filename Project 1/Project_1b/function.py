@@ -11,40 +11,27 @@ floatX = theano.config.floatX
 
 
 def init_bias(n = 1):
-    return theano.shared(np.zeros(n), theano.config.floatX)
+    #return theano.shared(np.zeros(n) if n != 1 else 0, floatX)
+    return theano.shared(np.zeros(n), floatX)
 
 
 def init_weights(n_in=1, n_out=1, logistic=True):
-    np.random.seed(10)
     W_values = np.random.uniform(low=-np.sqrt(6. / (n_in + n_out)),
                                  high=np.sqrt(6. / (n_in + n_out)),
                                  size=(n_in, n_out))
     if logistic == True:
         W_values *= 4
-    return theano.shared(W_values, theano.config.floatX)
-
-
-def set_bias(b, n = 1):
-    b.set_value(np.zeros(n))
-
-
-def set_weights(w, n_in=1, n_out=1, logistic=True):
-    np.random.seed
-    W_values = np.random.uniform(low=-np.sqrt(6. / (n_in + n_out)),
-                                 high=np.sqrt(6. / (n_in + n_out)),
-                                 size=(n_in, n_out))
-    if logistic == True:
-        W_values *= 4
-    w.set_value(W_values)
-
+    return theano.shared(W_values, floatX)
 
 # scale and normalize input data
-def scale(X, X_min, X_max):
-    return (X - X_min) / (X_max - X_min)
+def scale(data):
+    data_max, data_min = np.max(data, axis=0), np.min(data, axis=0)
+    return (data - data_min) / (data_max - data_min)
 
 
-def normalize(X, X_mean, X_std):
-    return (X - X_mean) / X_std
+def normalize(data):
+    data_mean, data_std = np.mean(data, axis=0), np.std(data, axis=0)
+    return (data - data_mean) / data_std
 
 
 def shuffle_data(samples, labels):
@@ -57,19 +44,17 @@ def shuffle_data(samples, labels):
 
 def scale_normalize(data):
     # scale and normalize data
-    data_max, data_min = np.max(data, axis=0), np.min(data, axis=0)
-    data = scale(data, data_min, data_max)
-    data_mean, data_std = np.mean(data, axis=0), np.std(data, axis=0)
-    data = normalize(data, data_mean, data_std)
+    data_scale = scale(data)
+    data_normalize = normalize(data_scale)
 
-    return data
+    return data_normalize
 
 
 def generateFunction(learning_rate, no_hidden=hidden):
     x = T.matrix('x')  # data sample
     d = T.matrix('d')  # desired output
 
-    w_o = init_weights(no_hidden, 1)
+    w_o = init_weights(no_hidden, 1, False)
     b_o = init_bias()
     w_h1 = init_weights(1, no_hidden)
     b_h1 = init_bias(no_hidden)
@@ -244,10 +229,13 @@ def function(trainX, trainY, testX, testY, no_hidden1, learning_rate, epochs, ba
 
         for start, end in zip(range(0, len(trainX), batch_size), range(batch_size, len(trainX), batch_size)):
             # print "start: %d, end: %d \n" % (start, end)
-            indiv_train_cost = train(trainX[start:end:], np.transpose(trainY[start:end]))
+            indiv_train_cost = train(trainX[start:end], np.transpose(trainY[start:end]))
             costs.append(indiv_train_cost)
 
-        train_cost[iter] = np.mean(costs)
+        if batch_size == len(trainX):
+            train_cost[iter] = train(trainX, np.transpose(trainY))
+        else:
+            train_cost[iter] = np.mean(costs)
         pred, test_cost[iter], test_accuracy[iter] = test(testX, np.transpose(testY))
 
         if test_cost[iter] < min_error:
@@ -271,7 +259,7 @@ def function(trainX, trainY, testX, testY, no_hidden1, learning_rate, epochs, ba
                         'best_cost': best_cost, 'best_accuracy': best_accuracy,
                         'train_cost': train_cost, 'test_cost': test_cost})
 
-    print('Minimum error: %.1f, Best accuracy %.1f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
+    print('Minimum error: %.6f, Best accuracy %.6f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
 
     return train, test, values_dict
 
@@ -381,7 +369,7 @@ def function_4layer(trainX, trainY, testX, testY, no_hidden1, no_hidden2, learni
                         'best_b_h2': best_b_h2, 'best_pred': best_pred, 'best_cost': best_cost,
                         'best_accuracy': best_accuracy, 'train_cost': train_cost, 'test_cost': test_cost})
 
-    print('Minimum error: %.1f, Best accuracy %.1f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
+    print('Minimum error: %.6f, Best accuracy %.6f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
 
     return train, test, values_dict
 
@@ -503,6 +491,6 @@ def function_5layer(trainX, trainY, testX, testY, no_hidden1, no_hidden2, no_hid
                         'best_pred': best_pred, 'best_cost': best_cost, 'best_accuracy': best_accuracy,
                         'train_cost': train_cost, 'test_cost': test_cost})
 
-    print('Minimum error: %.1f, Best accuracy %.1f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
+    print('Minimum error: %.6f, Best accuracy %.6f, Number of Iterations: %d' % (best_cost, best_accuracy, best_iter))
 
     return train, test, values_dict

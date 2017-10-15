@@ -16,16 +16,16 @@ alpha_values = [0.001, 0.5 * 0.001, 0.0001, 0.5 * 0.0001, 0.00001]
 cal_housing = np.loadtxt('cal_housing.data', delimiter=',')
 X_data, Y_data = cal_housing[:, :8], cal_housing[:, -1]
 Y_data = (np.asmatrix(Y_data)).transpose()
+Y_data = Y_data/1e6
 
+# Scale X_data then shuffle data
+X_data = f.scale(X_data)
 X_data, Y_data = f.shuffle_data(X_data, Y_data)
 
 # separate train and test data
 m = 3 * X_data.shape[0] // 10
 testX, testY = X_data[:m], Y_data[:m]
 trainX, trainY = X_data[m:], Y_data[m:]
-
-trainX = f.scale_normalize(trainX)
-testX = f.scale_normalize(testX)
 
 len_trainX = len(trainX)
 interval = len_trainX // 5
@@ -74,7 +74,6 @@ plt.ylabel('Mean Squared Error')
 plt.title('Validation Errors at Various Alphas')
 plt.legend()
 plt.savefig('partb_2a.png')
-plt.show()
 
 train, test, valuesDict = f.function(trainX, trainY, testX, testY, no_hidden1,
                                              best_alpha, epochs, batch_size)
