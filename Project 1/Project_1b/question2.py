@@ -38,7 +38,6 @@ best_valuesDict = {}
 train = None
 test = None
 valuesDict = {}
-plt.figure()
 
 for alpha in alpha_values:
     print('For Alpha = %.5f' % alpha)
@@ -63,28 +62,39 @@ for alpha in alpha_values:
         best_test = test
         best_valuesDict = valuesDict
 
+    plt.figure(0)
+    plt.plot(range(epochs), valuesDict['train_cost'], label='Alpha = %.5f' % alpha)
+    plt.figure(1)
     plt.plot(range(epochs), valuesDict['test_cost'], label='Alpha = %.5f' % alpha)
 
 print('Best model found at Alpha  = %.5f' % best_alpha)
 
 # Plots
 # a) Plot the training error against number of epochs for the 3-layer network.
+plt.figure(0)
+plt.xlabel('Time (s)')
+plt.ylabel('Mean Squared Error')
+plt.title('Training Errors at Various Alphas')
+plt.legend()
+plt.savefig('partb_2a_train.png')
+
+plt.figure(1)
 plt.xlabel('Time (s)')
 plt.ylabel('Mean Squared Error')
 plt.title('Validation Errors at Various Alphas')
 plt.legend()
-plt.savefig('partb_2a.png')
+plt.savefig('partb_2a_validate.png')
 
 train, test, valuesDict = f.function(trainX, trainY, testX, testY, no_hidden1,
                                              best_alpha, epochs, batch_size)
 
 
 # b) Plot the final test errors of prediction by the network.
-plt.figure()
+plt.figure(2)
 plt.plot(range(epochs), valuesDict['test_cost'], label='test error')
 plt.xlabel('Time (s)')
 plt.ylabel('Mean Squared Error')
 plt.title('Test Errors at Alpha = %.5f' % best_alpha)
 plt.legend()
-plt.savefig('partb_2b.png')
+plt.savefig('partb_2b_test.png')
 plt.show()

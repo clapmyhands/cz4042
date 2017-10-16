@@ -10,7 +10,7 @@ epochs = 1000
 # batch_size = 14448
 batch_size = 32
 no_hidden1 = 30  # num of neurons in hidden layer 1
-learning_rate = 1e-3
+learning_rate = 1e-4
 folds = 5
 
 
@@ -18,7 +18,7 @@ folds = 5
 cal_housing = np.loadtxt('cal_housing.data', delimiter=',')
 X_data, Y_data = cal_housing[:, :8], cal_housing[:, -1]
 Y_data = (np.asmatrix(Y_data)).transpose()
-Y_data = Y_data/1e6
+Y_data = Y_data/1e3
 
 # Scale X_data then shuffle data
 X_data = f.scale(X_data)
