@@ -23,31 +23,31 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
         # ?, 1, 28, 28
         self.Conv1 = nn.Conv2d(1, 15, 9, 1, 0)
-        # initializeWeight(self.Conv1)
+        initializeWeight(self.Conv1)
+        self.Relu1 = nn.ReLU()
         # ?, 15, 20, 20
         self.MaxPool1 = nn.MaxPool2d(2)
         # ?, 15, 10, 10
-        self.Relu1 = nn.ReLU()
         self.Conv2 = nn.Conv2d(15, 20, 5, 1, 0)
-        # initializeWeight(self.Conv2)
+        initializeWeight(self.Conv2)
+        self.Relu2 = nn.ReLU()
         # ?, 20, 6, 6
         self.MaxPool2 = nn.MaxPool2d(2)
         # ?, 20, 3, 3
-        self.Relu2 = nn.ReLU()
         self.Fc1 = nn.Linear(180, 100)
-        # initializeWeight(self.Fc1)
+        initializeWeight(self.Fc1)
         self.Relu3 = nn.ReLU()
         self.Fc2 = nn.Linear(100, 10)
-        # initializeWeight(self.Fc2)
+        initializeWeight(self.Fc2)
 
 
     def forward(self, data):
         x = self.Conv1(data)
-        x = self.MaxPool1(x)
         x = self.Relu1(x)
+        x = self.MaxPool1(x)
         x = self.Conv2(x)
-        x = self.MaxPool2(x)
         x = self.Relu2(x)
+        x = self.MaxPool2(x)
         x = x.view(-1, 180)
         x = self.Fc1(x)
         x = self.Relu3(x)
@@ -89,14 +89,17 @@ def test(net, test_set):
     return accuracy
 
 def main():
-    learning_rate = 0.5
+    learning_rate = 0.05
     decay = 1e-6
     batch_size = 128
-    epochs = 40
-    momentum = 0.5
+    epochs = 100
+    # question 1
+    momentum = 0
+    # question 2
+    # momentum = 0.5
 
-    train_dataset = datasets.MNIST("./data_mnists", train=True, transform=transforms.ToTensor())
-    test_dataset = datasets.MNIST("./data_mnists", train=False, transform=transforms.ToTensor())
+    train_dataset = datasets.MNIST("../data_mnists", train=True, transform=transforms.ToTensor())
+    test_dataset = datasets.MNIST("../data_mnists", train=False, transform=transforms.ToTensor())
     train_size = len(train_dataset)
     test_size = len(test_dataset)
     train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -109,13 +112,13 @@ def main():
 
     net = ConvNet()
     criterion = nn.CrossEntropyLoss()
-    # optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=decay, momentum=momentum)
+    optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=decay, momentum=momentum)
 
-    learning_rate = 1e-3
-    decay = 1e-4
-    alpha = 0.9
-    epsilon = 1e-6
-    optimizer = torch.optim.RMSprop(net.parameters(), lr=learning_rate, alpha=alpha, weight_decay=decay, eps=epsilon)
+    # learning_rate = 1e-3
+    # decay = 1e-4
+    # alpha = 0.9
+    # epsilon = 1e-6
+    # optimizer = torch.optim.RMSprop(net.parameters(), lr=learning_rate, alpha=alpha, weight_decay=decay, eps=epsilon)
 
     if torch.cuda.is_available():
         net = net.cuda()
@@ -129,6 +132,9 @@ def main():
     for epoch in range(epochs):
         cost = train(net, criterion, optimizer, train_set)
         accuracy = test(net, test_set)
+
+        train_cost.append(cost)
+        test_accuracy.append(accuracy)
 
         if epoch == 0:
             train_plot = vis.line(X=np.array([epoch+1]), Y=np.array([cost]), opts=dict(
@@ -146,34 +152,22 @@ def main():
             vis.updateTrace(X=np.array([epoch+1]), Y=np.array([accuracy]), win=test_plot)
 
     test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4)
-    count=0
+    count = 0
     for i, _ in test_loader:
         temp = Variable(i)
-        temp1 = net.Conv1(temp)
+        temp1 = net.Relu1(net.Conv1(temp))
         temp2 = net.MaxPool1(temp1)
-        temp3 = net.Conv2(net.Relu1(temp2))
+        temp3 = net.Relu2(net.Conv2(temp2))
         temp4 = net.MaxPool2(temp3)
         vis.image(F.upsample(temp, scale_factor=6).data.numpy(), opts=dict(caption='Sample-{}'.format(count), jpgquality=100))
         vis.images(F.upsample(temp1.view(15, 1, 20, 20), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='Conv1-{}'.format(count), jpgquality=100))
         vis.images(F.upsample(temp2.view(15, 1, 10, 10), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='MaxPool1-{}'.format(count), jpgquality=100))
         vis.images(F.upsample(temp3.view(20, 1, 6, 6), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='Conv2-{}'.format(count), jpgquality=100))
         vis.images(F.upsample(temp4.view(20, 1, 3, 3), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='MaxPool2-{}'.format(count), jpgquality=100))
-        count+=1
-        if count==2:
+        count += 1
+        if count == 2:
             break
-    # temp1 = net.Conv1.weight
-    # temp2 = F.max_pool2d(temp1, 2)
-    # temp3 = net.Conv2.weight.view(300 , 1, 5, 5)
-    # temp4 = F.max_pool2d(temp3, 2)
-    # # sample to 6x original size
-    # temp1 = F.upsample(temp1, 54)
-    # temp2 = F.upsample(temp2, 24)
-    # temp3 = F.upsample(temp3, 30)
-    # temp4 = F.upsample(temp4, 12)
-    # vis.images(temp1.data.numpy(), nrow=5, opts=dict(caption='Conv1', jpgquality=100))
-    # vis.images(temp2.data.numpy(), nrow=5, opts=dict(caption='MaxPool1', jpgquality=100))
-    # vis.images(temp3.data.numpy(), nrow=15, opts=dict(caption='Conv2', jpgquality=100))
-    # vis.images(temp4.data.numpy(), nrow=15, opts=dict(caption='MaxPool2', jpgquality=100))
+
 
 if __name__ == '__main__':
     main()
