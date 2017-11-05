@@ -9,6 +9,11 @@ import visdom
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
+def normalizeForImage(tensor: torch.FloatTensor):
+    max_val = torch.max(tensor)
+    min_val = torch.min(tensor)
+    return (tensor-min_val)/(max_val-min_val)
+
 def initializeWeight(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -53,6 +58,7 @@ class ConvNet(nn.Module):
         x = self.Relu3(x)
         x = self.Fc2(x)
         return x
+
 
 def train(net, criterion, optimizer, train_set):
     train_size, train_loader = train_set
@@ -159,11 +165,16 @@ def main():
         temp2 = net.MaxPool1(temp1)
         temp3 = net.Relu2(net.Conv2(temp2))
         temp4 = net.MaxPool2(temp3)
-        vis.image(F.upsample(temp, scale_factor=6).data.numpy(), opts=dict(caption='Sample-{}'.format(count), jpgquality=100))
-        vis.images(F.upsample(temp1.view(15, 1, 20, 20), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='Conv1-{}'.format(count), jpgquality=100))
-        vis.images(F.upsample(temp2.view(15, 1, 10, 10), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='MaxPool1-{}'.format(count), jpgquality=100))
-        vis.images(F.upsample(temp3.view(20, 1, 6, 6), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='Conv2-{}'.format(count), jpgquality=100))
-        vis.images(F.upsample(temp4.view(20, 1, 3, 3), scale_factor=6).data.numpy(), nrow=5, opts=dict(caption='MaxPool2-{}'.format(count), jpgquality=100))
+        temp = temp.data.numpy()
+        temp1 = normalizeForImage(temp1.data).view(15, 1, 20, 20).numpy()
+        temp2 = normalizeForImage(temp2.data).view(15, 1, 10, 10).numpy()
+        temp3 = normalizeForImage(temp3.data).view(20, 1, 6, 6).numpy()
+        temp4 = normalizeForImage(temp4.data).view(20, 1, 3, 3).numpy()
+        vis.image(temp, opts=dict(caption='Sample-{}'.format(count), jpgquality=100))
+        vis.images(temp1, nrow=5, opts=dict(caption='Conv1-{}'.format(count), jpgquality=100))
+        vis.images(temp2, nrow=5, opts=dict(caption='MaxPool1-{}'.format(count), jpgquality=100))
+        vis.images(temp3, nrow=5, opts=dict(caption='Conv2-{}'.format(count), jpgquality=100))
+        vis.images(temp4, nrow=5, opts=dict(caption='MaxPool2-{}'.format(count), jpgquality=100))
         count += 1
         if count == 2:
             break
