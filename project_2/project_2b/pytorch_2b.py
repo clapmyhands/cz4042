@@ -68,7 +68,7 @@ class VAENet(nn.Module):
             output = self.Sigmoid(self.encodeLinear2(x))
             # self.activation.append(output)
         if level == 3:
-            output = self.encodeLinear3(x)
+            output = self.Sigmoid(self.encodeLinear3(x))
         return output
 
     def encode(self, data):
@@ -89,7 +89,7 @@ class VAENet(nn.Module):
             output = self.Sigmoid(self.decodeLinear2(x))
             # self.activation.append(output)
         if level == 1:
-            output = self.decodeLinear1(x)
+            output = self.Sigmoid(self.decodeLinear1(x))
         return output
 
     def decode(self, latent_vector):
@@ -112,6 +112,7 @@ class VAENet(nn.Module):
             latent_vector = self.encode_layer(data, 1)
             reconstruction = self.decode_layer(latent_vector, 1)
             self.activation.append(latent_vector)
+            self.activation.append(reconstruction)
         elif level == 2:
             latent_vector = self.encode_layer(data, 2)
             reconstruction = self.decode_layer(latent_vector, 2)
@@ -120,6 +121,7 @@ class VAENet(nn.Module):
         elif level == 3:
             latent_vector = self.encode_layer(data, 3)
             reconstruction = self.decode_layer(latent_vector, 3)
+            self.activation.append(latent_vector)
             self.activation.append(reconstruction)
         return reconstruction.view(data.size())
 
@@ -142,10 +144,14 @@ def SparsityCost(activation, penalty=0.5, sparsity=0.05):
 
     return kl_cost * penalty
 
+def BceCriterion(output, target):
+    cost = F.binary_cross_entropy(output, target, size_average=False)/output.size()[0]
+    return cost
+
 def main(classify=False, sparsity=False):
     vis = visdom.Visdom()
     learning_rate = 1e-1
-    epochs = 5
+    epochs = 3
     batch_size = 128
     corruption_level = 0.1
     momentum = 0
@@ -154,7 +160,9 @@ def main(classify=False, sparsity=False):
 
     vae = VAENet()
     vae.apply(initializeWeight)
-    criterion = torch.nn.BCEWithLogitsLoss()
+    # criterion = torch.nn.BCELoss(size_average=False)
+    criterion = BceCriterion
+
     if torch.cuda.is_available():
         vae = vae.cuda()
         criterion = criterion.cuda()
@@ -221,13 +229,15 @@ def main(classify=False, sparsity=False):
         vae.train()
         for x, _ in loader:
             iteration += 1
-            original = Variable(x)
+            # original = Variable(x)
             X = Variable(corruptInput(x, corruption_level))
             h = vae.encode_layer(X, 1)
+            original = h
             vae.zero_grad()
 
             h = vae.forward_layer(h, 2)
-            reconstruction = vae.decode_layer(h, 1).view(original.size())
+            # h = vae.decode_layer(h, 1).view(original.size())
+            reconstruction = h
             loss = criterion(reconstruction, original)
             if sparsity:
                 loss += SparsityCost(vae.activation)
@@ -259,15 +269,17 @@ def main(classify=False, sparsity=False):
         vae.train()
         for x, _ in loader:
             iteration += 1
-            original = Variable(x)
+            # original = Variable(x)
             X = Variable(corruptInput(x, corruption_level))
             h = vae.encode_layer(X, 1)
             h = vae.encode_layer(h, 2)
+            original = h
             vae.zero_grad()
 
             h = vae.forward_layer(h, 3)
-            h = vae.decode_layer(h, 2)
-            reconstruction = vae.decode_layer(h, 1).view(original.size())
+            # h = vae.decode_layer(h, 2)
+            # h = vae.decode_layer(h, 1).view(original.size())
+            reconstruction = h
             loss = criterion(reconstruction, original)
             if sparsity:
                 loss += SparsityCost(vae.activation)
@@ -289,34 +301,38 @@ def main(classify=False, sparsity=False):
                                 Y=np.array([loss.data[0]]),
                                 win=train_plot)
 
+    # Visualize Weights
     vae.apply(visualizeLinearLayerWeight)
 
+    # Visualize Activation
     vae.eval()
     test_loader = data.DataLoader(test_dataset, shuffle=True, batch_size=100)
     for x, _ in test_loader:
         X = Variable(x)
         reconstruction = vae(X)
-        images = torch.cat([X.data, F.sigmoid(reconstruction).data], 3).numpy()
+        images = torch.cat([X.data, reconstruction.data], 3).numpy()
         vis.images(images, nrow=5, opts=dict(title='original-reconstruction'))
         X = X.view(X.size()[0], -1)
         # encode 1 (784 -> 900)
         X = vae.encode_layer(X, 1)
         image_x = X.view(-1, 1, 30, 30)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='EncodeLinear-1'))
+        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-1'))
         # encode 2 (900 -> 625)
         X = vae.encode_layer(X, 2)
         image_x = X.view(-1, 1, 25, 25)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='EncodeLinear-2'))
+        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-2'))
+        # encode 3 (625 -> 400)
         X = vae.encode_layer(X, 3)
+        image_x = X.view(-1, 1, 20, 20)
+        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-3'))
         # decode 3 (400 -> 625)
         X = vae.decode_layer(X, 3)
         image_x = X.view(-1, 1, 25, 25)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='DecodeLinear-3'))
+        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-3'))
         # decode 2 (625 -> 900)
         X = vae.decode_layer(X, 2)
         image_x = X.view(-1, 1, 30, 30)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='DecodeLinear-2'))
-
+        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-2'))
         break
 
     if classify:
@@ -373,4 +389,4 @@ def main(classify=False, sparsity=False):
                                     win=softmax_test_plot)
 
 if __name__ == '__main__':
-    main(classify=True, sparsity=True)
+    main(classify=False, sparsity=True)
