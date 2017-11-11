@@ -156,7 +156,7 @@ def BceCriterion(output, target):
 def main(classify=False, sparsity=False):
     vis = visdom.Visdom()
     learning_rate = 1e-1
-    epochs = 1
+    epochs = 30
     batch_size = 128
     corruption_level = 0.1
     momentum = 0

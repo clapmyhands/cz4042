@@ -103,7 +103,7 @@ def main(rms=False):
     learning_rate = 0.05
     decay = 1e-6
     batch_size = 128
-    epochs = 1
+    epochs = 100
     # question 1
     momentum = 0
     # question 2
