@@ -26,14 +26,17 @@ def visualizeLinearLayerWeight(m):
         side = math.floor(math.sqrt(weight_size[1]))
 
         idx = np.random.random_integers(0, weight_size[0]-1, 100)
+        idx = torch.from_numpy(idx).long()
+        if torch.cuda.is_available():
+            idx = idx.cuda()
         sample_weight = m.weight[idx, :]
         sample_weight, max_val, min_val = normalizeForImage(sample_weight)
 
         print("{}: {} x {}".format(classname, *weight_size))
-        for mini, maxi in zip(min_val.data.numpy(), max_val.data.numpy()):
-            print(mini, " ", maxi)
+        # for mini, maxi in zip(min_val.data.numpy(), max_val.data.numpy()):
+        #     print(mini, " ", maxi)
 
-        image = sample_weight.view(-1, 1, side, side).data.numpy()
+        image = sample_weight.view(-1, 1, side, side).cpu().data.numpy()
         vis.images(image, nrow=5, opts=dict(
             title='Linear-[{}, ({}, {})]'.format(weight_size[0], side, side)
         ))
@@ -47,6 +50,8 @@ def initializeWeight(m):
 def corruptInput(batch_input, corruption_level):
     corruption_matrix = np.random.binomial(1, 1-corruption_level, batch_input.size()[1:])
     corruption_matrix = torch.from_numpy(corruption_matrix).float()
+    if torch.cuda.is_available():
+        corruption_matrix = corruption_matrix.cuda()
     return batch_input*corruption_matrix
 
 
@@ -59,6 +64,7 @@ class VAENet(nn.Module):
         self.decodeLinear3 = nn.Linear(400, 625)
         self.decodeLinear2 = nn.Linear(625, 900)
         self.decodeLinear1 = nn.Linear(900, 28*28)
+        self.classify_out  = nn.Linear(400, 10)
         self.Sigmoid = nn.Sigmoid()
         self.activation = []
 
@@ -68,12 +74,11 @@ class VAENet(nn.Module):
             raise ValueError("Level should be 1, 2, or 3")
         if level == 1:
             output = self.Sigmoid(self.encodeLinear1(x))
-            # self.activation.append(output)
         if level == 2:
             output = self.Sigmoid(self.encodeLinear2(x))
-            # self.activation.append(output)
         if level == 3:
             output = self.Sigmoid(self.encodeLinear3(x))
+            # output = self.encodeLinear3(x)
         return output
 
     def encode(self, data):
@@ -89,10 +94,8 @@ class VAENet(nn.Module):
             raise ValueError("Level should be 1, 2, or 3")
         if level == 3:
             output = self.Sigmoid(self.decodeLinear3(x))
-            # self.activation.append(output)
         if level == 2:
             output = self.Sigmoid(self.decodeLinear2(x))
-            # self.activation.append(output)
         if level == 1:
             output = self.Sigmoid(self.decodeLinear1(x))
         return output
@@ -133,6 +136,7 @@ class VAENet(nn.Module):
     def classify(self, data):
         x = data.view(data.size()[0], -1)
         x = self.encode(x)
+        x = self.classify_out(x)
         return x
 
     def clear_activation(self):
@@ -144,6 +148,8 @@ def SparsityCost(activation, penalty=0.5, sparsity=0.05):
     for i in activation:
         rhoj = torch.mean(i, 0, True)
         rho = Variable(torch.zeros(rhoj.size()[1]).fill_(sparsity))
+        if torch.cuda.is_available():
+            rhoj, rho= rhoj.cuda(), rho.cuda()
         kl_cost += F.kl_div(torch.log(rhoj+1e-6), rho, size_average=False) +\
                    F.kl_div(torch.log(1-rhoj+1e-6), (1-rho), size_average=False)
 
@@ -156,7 +162,7 @@ def BceCriterion(output, target):
 def main(classify=False, sparsity=False):
     vis = visdom.Visdom()
     learning_rate = 1e-1
-    epochs = 30
+    epochs = 3
     batch_size = 128
     corruption_level = 0.1
     momentum = 0
@@ -186,8 +192,11 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs+1):
         print("Epoch: {}".format(epoch))
         vae.train()
+        cost = 0.0
+        iteration += 1
         for x, _ in train_loader:
-            iteration += 1
+            if torch.cuda.is_available():
+                x = x.cuda()
             X = Variable(corruptInput(x, corruption_level))
             original = Variable(x)
             vae.zero_grad()
@@ -200,27 +209,20 @@ def main(classify=False, sparsity=False):
             loss.backward()
             optim.step()
             vae.clear_activation()
-
-            if iteration == 1:
-                train_plot = vis.line(X=np.array([iteration]),
-                                      Y=np.array([loss.data[0]]),
-                                      opts=dict(
-                                          title='Train Cost layer 1',
-                                          xlabel='Iteration',
-                                          ylabel='BCELoss'
-                                      ))
-            else:
-                vis.updateTrace(X=np.array([iteration]),
-                                Y=np.array([loss.data[0]]),
-                                win=train_plot)
-
-            # if iteration%1000==0:
-            #     result = np.array([
-            #         x[0].numpy(),
-            #         X.data[0].numpy(),
-            #         F.sigmoid(reconstruction).data[0].numpy()
-            #     ])
-            #     vis.images(result, opts=dict(caption=iteration))
+            cost += loss.data[0] * len(x)
+        cost /= len(train_dataset)
+        if iteration == 1:
+            train_plot = vis.line(X=np.array([iteration]),
+                                  Y=np.array([cost]),
+                                  opts=dict(
+                                      title='Train Cost layer 1',
+                                      xlabel='Iteration',
+                                      ylabel='BCELoss'
+                                  ))
+        else:
+            vis.updateTrace(X=np.array([iteration]),
+                            Y=np.array([cost]),
+                            win=train_plot)
 
     ### layer 2
     print("=========== Layer 2 ===========")
@@ -230,9 +232,12 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs + 1):
         print("Epoch: {}".format(epoch))
         vae.train()
+        cost = 0.0
+        iteration += 1
         for x, _ in train_loader:
-            iteration += 1
             # original = Variable(x)
+            if torch.cuda.is_available():
+                x = x.cuda()
             X = Variable(corruptInput(x, corruption_level))
             h = vae.encode_layer(X, 1)
             original = h
@@ -248,19 +253,20 @@ def main(classify=False, sparsity=False):
             loss.backward()
             optim.step()
             vae.clear_activation()
-
-            if iteration == 1:
-                train_plot = vis.line(X=np.array([iteration]),
-                                      Y=np.array([loss.data[0]]),
-                                      opts=dict(
-                                          title='Train Cost layer 2',
-                                          xlabel='Iteration',
-                                          ylabel='BCELoss'
-                                      ))
-            else:
-                vis.updateTrace(X=np.array([iteration]),
-                                Y=np.array([loss.data[0]]),
-                                win=train_plot)
+            cost += loss.data[0]*len(x)
+        cost /= len(train_dataset)
+        if iteration == 1:
+            train_plot = vis.line(X=np.array([iteration]),
+                                  Y=np.array([cost]),
+                                  opts=dict(
+                                      title='Train Cost layer 2',
+                                      xlabel='Iteration',
+                                      ylabel='BCELoss'
+                                  ))
+        else:
+            vis.updateTrace(X=np.array([iteration]),
+                            Y=np.array([cost]),
+                            win=train_plot)
 
     ### layer 3
     print("=========== Layer 3 ===========")
@@ -270,9 +276,12 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs + 1):
         print("Epoch: {}".format(epoch))
         vae.train()
+        cost = 0.0
+        iteration += 1
         for x, _ in train_loader:
-            iteration += 1
             # original = Variable(x)
+            if torch.cuda.is_available():
+                x = x.cuda()
             X = Variable(corruptInput(x, corruption_level))
             h = vae.encode_layer(X, 1)
             h = vae.encode_layer(h, 2)
@@ -290,19 +299,20 @@ def main(classify=False, sparsity=False):
             loss.backward()
             optim.step()
             vae.clear_activation()
-
-            if iteration == 1:
-                train_plot = vis.line(X=np.array([iteration]),
-                                      Y=np.array([loss.data[0]]),
-                                      opts=dict(
-                                          title='Train Cost layer 3',
-                                          xlabel='Iteration',
-                                          ylabel='BCELoss'
-                                      ))
-            else:
-                vis.updateTrace(X=np.array([iteration]),
-                                Y=np.array([loss.data[0]]),
-                                win=train_plot)
+            cost += loss.data[0] * len(x)
+        cost /= len(train_dataset)
+        if iteration == 1:
+            train_plot = vis.line(X=np.array([iteration]),
+                                  Y=np.array([cost]),
+                                  opts=dict(
+                                      title='Train Cost layer 3',
+                                      xlabel='Iteration',
+                                      ylabel='BCELoss'
+                                  ))
+        else:
+            vis.updateTrace(X=np.array([iteration]),
+                            Y=np.array([cost]),
+                            win=train_plot)
 
     ### Visualize Weights
     vae.apply(visualizeLinearLayerWeight)
@@ -312,84 +322,95 @@ def main(classify=False, sparsity=False):
     test_loader = data.DataLoader(test_dataset, shuffle=True, batch_size=100)
     for x, _ in test_loader:
         X = Variable(x)
+        if torch.cuda.is_available():
+            X = X.cuda()
         reconstruction = vae(X)
         # reconstructed images
-        images = torch.cat([X.data, reconstruction.data], 3).numpy()
+        images = torch.cat([X.data, reconstruction.data], 3).cpu().numpy()
         vis.images(images, nrow=5, opts=dict(title='original-reconstruction'))
         X = X.view(X.size()[0], -1)
         # encode 1 (784 -> 900)
         X = vae.encode_layer(X, 1)
         image_x = X.view(-1, 1, 30, 30)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-1'))
+        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-1'))
         # encode 2 (900 -> 625)
         X = vae.encode_layer(X, 2)
         image_x = X.view(-1, 1, 25, 25)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-2'))
+        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-2'))
         # encode 3 (625 -> 400)
         X = vae.encode_layer(X, 3)
-        image_x = X.view(-1, 1, 20, 20)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-3'))
+        image_x = normalizeForImage(X)[0].view(-1, 1, 20, 20)
+        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-3'))
         # decode 3 (400 -> 625)
         X = vae.decode_layer(X, 3)
         image_x = X.view(-1, 1, 25, 25)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-3'))
+        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-3'))
         # decode 2 (625 -> 900)
         X = vae.decode_layer(X, 2)
         image_x = X.view(-1, 1, 30, 30)
-        vis.images(image_x.data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-2'))
+        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-DecodeLinear-2'))
         break
 
     if classify:
-        parameter = chain(vae.encodeLinear1.parameters(),
-                          vae.encodeLinear2.parameters(),
-                          vae.encodeLinear3.parameters())
-        optim = torch.optim.SGD(parameter, lr=learning_rate)
-        vae.train()
+        # parameter = chain(vae.encodeLinear1.parameters(),
+        #                   vae.encodeLinear2.parameters(),
+        #                   vae.encodeLinear3.parameters())
+        optim = torch.optim.SGD(vae.parameters(), lr=learning_rate, momentum=momentum)
         classifier_loss = nn.CrossEntropyLoss()
+        if torch.cuda.is_available():
+            classifier_loss = classifier_loss.cuda()
         iteration = 0
         for epoch in range(1,epochs+1):
+            vae.train()
+            iteration += 1
+            cost = 0
             for x, y in train_loader:
-                iteration += 1
+                if torch.cuda.is_available():
+                    x, y = x.cuda(), y.cuda()
+                X, Y = Variable(x), Variable(y)
                 vae.zero_grad()
-                X = Variable(x)
-                Y = Variable(y)
 
                 pred = vae.classify(X)
                 loss = classifier_loss(pred, Y)
 
                 loss.backward()
                 optim.step()
+                cost += loss.data[0] * len(x)
+            cost /= len(train_dataset)
 
-                accuracy = 0.0
-                for x_test, y_test in test_loader:
-                    X_test = Variable(x_test)
-                    _, pred = torch.max(vae.classify(X_test), 1)
-                    accuracy += torch.sum(pred.data == y_test)
-                accuracy = 100 * accuracy / len(test_dataset)
+            vae.eval()
+            accuracy = 0
+            for x_test, y_test in test_loader:
+                if torch.cuda.is_available():
+                    x_test, y_test = x_test.cuda(), y_test.cuda()
+                X_test = Variable(x_test)
+                _, pred = torch.max(vae.classify(X_test).data, 1)
+                accuracy += (pred == y_test).sum()
+            accuracy = 100 * accuracy / len(test_dataset)
 
-                #plot loss and accuracy here
-                if iteration == 1:
-                    softmax_train_plot = vis.line(X=np.array([iteration]),
-                                                  Y=np.array([loss.data[0]]),
-                                                  opts=dict(
-                                                      title='Softmax Train Cost',
-                                                      xlabel='Iteration',
-                                                      ylabel='CrossEntropyLoss'
-                                                  ))
-                    softmax_test_plot = vis.line(X=np.array([iteration]),
-                                                 Y=np.array([accuracy]),
-                                                 opts=dict(
-                                                     title='Softmax Test Accuracy',
-                                                     xlabel='Iteration',
-                                                     ylabel='% Accuracy'
-                                                 ))
-                else:
-                    vis.updateTrace(X=np.array([iteration]),
-                                    Y=np.array([loss.data[0]]),
-                                    win=softmax_train_plot)
-                    vis.updateTrace(X=np.array([iteration]),
-                                    Y=np.array([accuracy]),
-                                    win=softmax_test_plot)
+            #plot loss and accuracy here
+            if iteration == 1:
+                softmax_train_plot = vis.line(X=np.array([iteration]),
+                                              Y=np.array([cost]),
+                                              opts=dict(
+                                                  title='Softmax Train Cost',
+                                                  xlabel='Iteration',
+                                                  ylabel='CrossEntropyLoss'
+                                              ))
+                softmax_test_plot = vis.line(X=np.array([iteration]),
+                                             Y=np.array([accuracy]),
+                                             opts=dict(
+                                                 title='Softmax Test Accuracy',
+                                                 xlabel='Iteration',
+                                                 ylabel='% Accuracy'
+                                             ))
+            else:
+                vis.updateTrace(X=np.array([iteration]),
+                                Y=np.array([cost]),
+                                win=softmax_train_plot)
+                vis.updateTrace(X=np.array([iteration]),
+                                Y=np.array([accuracy]),
+                                win=softmax_test_plot)
 
 if __name__ == '__main__':
-    main(classify=False, sparsity=False)
+    main(classify=True, sparsity=False)
