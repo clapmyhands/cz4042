@@ -13,9 +13,10 @@ from torch.autograd import Variable
 from itertools import chain
 
 def normalizeForImage(tensor: torch.FloatTensor):
-    max_val = torch.max(tensor)
-    min_val = torch.min(tensor)
-    return (tensor-min_val)/(max_val-min_val)
+    batch_size = tensor.size()[0]
+    max_val, _ = torch.max(tensor.view(batch_size, -1), 1, keepdim=True)
+    min_val, _ = torch.min(tensor.view(batch_size, -1), 1, keepdim=True)
+    return (tensor-min_val)/(max_val-min_val+1e-12), max_val, min_val
 
 def visualizeLinearLayerWeight(m):
     classname = m.__class__.__name__
@@ -26,7 +27,11 @@ def visualizeLinearLayerWeight(m):
 
         idx = np.random.random_integers(0, weight_size[0]-1, 100)
         sample_weight = m.weight[idx, :]
-        sample_weight = normalizeForImage(sample_weight)
+        sample_weight, max_val, min_val = normalizeForImage(sample_weight)
+
+        print("{}: {} x {}".format(classname, *weight_size))
+        for mini, maxi in zip(min_val.data.numpy(), max_val.data.numpy()):
+            print(mini, " ", maxi)
 
         image = sample_weight.view(-1, 1, side, side).data.numpy()
         vis.images(image, nrow=5, opts=dict(
@@ -36,7 +41,7 @@ def visualizeLinearLayerWeight(m):
 def initializeWeight(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
-        nn.init.xavier_normal(m.weight)
+        nn.init.xavier_uniform(m.weight)
         nn.init.constant(m.bias, 0)
 
 def corruptInput(batch_input, corruption_level):
@@ -151,7 +156,7 @@ def BceCriterion(output, target):
 def main(classify=False, sparsity=False):
     vis = visdom.Visdom()
     learning_rate = 1e-1
-    epochs = 3
+    epochs = 1
     batch_size = 128
     corruption_level = 0.1
     momentum = 0
@@ -160,21 +165,19 @@ def main(classify=False, sparsity=False):
 
     vae = VAENet()
     vae.apply(initializeWeight)
-    # criterion = torch.nn.BCELoss(size_average=False)
-    criterion = BceCriterion
 
     if torch.cuda.is_available():
         vae = vae.cuda()
-        criterion = criterion.cuda()
 
+    ### load datasets
     train_dataset = datasets.MNIST("../data_mnists", train=True, transform=transforms.ToTensor())
     test_dataset = datasets.MNIST("../data_mnists", train=False, transform=transforms.ToTensor())
-    # dataset = data.ConcatDataset((train_dataset, test_dataset))
-    dataset = train_dataset
-    loader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
-    print("Sample size: {}".format(len(dataset)))
+    print("Train dataset: {} samples".format(len(train_dataset)))
+    print("Test dataset: {} samples".format(len(test_dataset)))
     print(vae)
+
     ### layer 1
     print("=========== Layer 1 ===========")
     parameter = chain(vae.encodeLinear1.parameters(), vae.decodeLinear1.parameters())
@@ -183,14 +186,14 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs+1):
         print("Epoch: {}".format(epoch))
         vae.train()
-        for x, _ in loader:
+        for x, _ in train_loader:
             iteration += 1
             X = Variable(corruptInput(x, corruption_level))
             original = Variable(x)
             vae.zero_grad()
 
             reconstruction = vae.forward_layer(X, 1)
-            loss = criterion(reconstruction, original)
+            loss = BceCriterion(reconstruction, original)
             if sparsity:
                 loss += SparsityCost(vae.activation)
 
@@ -227,7 +230,7 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs + 1):
         print("Epoch: {}".format(epoch))
         vae.train()
-        for x, _ in loader:
+        for x, _ in train_loader:
             iteration += 1
             # original = Variable(x)
             X = Variable(corruptInput(x, corruption_level))
@@ -238,7 +241,7 @@ def main(classify=False, sparsity=False):
             h = vae.forward_layer(h, 2)
             # h = vae.decode_layer(h, 1).view(original.size())
             reconstruction = h
-            loss = criterion(reconstruction, original)
+            loss = BceCriterion(reconstruction, original)
             if sparsity:
                 loss += SparsityCost(vae.activation)
 
@@ -267,7 +270,7 @@ def main(classify=False, sparsity=False):
     for epoch in range(1, epochs + 1):
         print("Epoch: {}".format(epoch))
         vae.train()
-        for x, _ in loader:
+        for x, _ in train_loader:
             iteration += 1
             # original = Variable(x)
             X = Variable(corruptInput(x, corruption_level))
@@ -280,7 +283,7 @@ def main(classify=False, sparsity=False):
             # h = vae.decode_layer(h, 2)
             # h = vae.decode_layer(h, 1).view(original.size())
             reconstruction = h
-            loss = criterion(reconstruction, original)
+            loss = BceCriterion(reconstruction, original)
             if sparsity:
                 loss += SparsityCost(vae.activation)
 
@@ -301,15 +304,16 @@ def main(classify=False, sparsity=False):
                                 Y=np.array([loss.data[0]]),
                                 win=train_plot)
 
-    # Visualize Weights
+    ### Visualize Weights
     vae.apply(visualizeLinearLayerWeight)
 
-    # Visualize Activation
+    ### Visualize Activation
     vae.eval()
     test_loader = data.DataLoader(test_dataset, shuffle=True, batch_size=100)
     for x, _ in test_loader:
         X = Variable(x)
         reconstruction = vae(X)
+        # reconstructed images
         images = torch.cat([X.data, reconstruction.data], 3).numpy()
         vis.images(images, nrow=5, opts=dict(title='original-reconstruction'))
         X = X.view(X.size()[0], -1)
@@ -344,7 +348,7 @@ def main(classify=False, sparsity=False):
         classifier_loss = nn.CrossEntropyLoss()
         iteration = 0
         for epoch in range(1,epochs+1):
-            for x, y in loader:
+            for x, y in train_loader:
                 iteration += 1
                 vae.zero_grad()
                 X = Variable(x)
@@ -372,7 +376,6 @@ def main(classify=False, sparsity=False):
                                                       xlabel='Iteration',
                                                       ylabel='CrossEntropyLoss'
                                                   ))
-
                     softmax_test_plot = vis.line(X=np.array([iteration]),
                                                  Y=np.array([accuracy]),
                                                  opts=dict(
@@ -389,4 +392,4 @@ def main(classify=False, sparsity=False):
                                     win=softmax_test_plot)
 
 if __name__ == '__main__':
-    main(classify=False, sparsity=True)
+    main(classify=False, sparsity=False)
