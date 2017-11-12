@@ -120,7 +120,7 @@ class VAENet(nn.Module):
             latent_vector = self.encode_layer(data, 1)
             reconstruction = self.decode_layer(latent_vector, 1)
             self.activation.append(latent_vector)
-            self.activation.append(reconstruction)
+            # self.activation.append(reconstruction)
         elif level == 2:
             latent_vector = self.encode_layer(data, 2)
             reconstruction = self.decode_layer(latent_vector, 2)
@@ -129,7 +129,7 @@ class VAENet(nn.Module):
         elif level == 3:
             latent_vector = self.encode_layer(data, 3)
             reconstruction = self.decode_layer(latent_vector, 3)
-            self.activation.append(latent_vector)
+            # self.activation.append(latent_vector)
             self.activation.append(reconstruction)
         return reconstruction.view(data.size())
 
@@ -339,8 +339,8 @@ def main(classify=False, sparsity=False):
         vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-2'))
         # encode 3 (625 -> 400)
         X = vae.encode_layer(X, 3)
-        image_x = normalizeForImage(X)[0].view(-1, 1, 20, 20)
-        vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-3'))
+        # image_x = normalizeForImage(X)[0].view(-1, 1, 20, 20)
+        # vis.images(image_x.cpu().data.numpy(), nrow=5, opts=dict(title='Sigmoid-EncodeLinear-3'))
         # decode 3 (400 -> 625)
         X = vae.decode_layer(X, 3)
         image_x = X.view(-1, 1, 25, 25)
@@ -413,4 +413,4 @@ def main(classify=False, sparsity=False):
                                 win=softmax_test_plot)
 
 if __name__ == '__main__':
-    main(classify=True, sparsity=False)
+    main(classify=False, sparsity=False)
