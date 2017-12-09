@@ -74,9 +74,11 @@ Layer 3:
 **Optimizer & Parameters**
 
 Epochs = 30
+
 Corruption = 0.1
+
 1. SGD(batch_size=128, lr=0.1) ~ w/o sparsity constraint
-2. SGD(batch_size=128, lr=0.1, momentum=0.1) w/ sparsity constraint
+2. SGD(batch_size=128, lr=0.1, momentum=0.1) ~ w/ sparsity constraint
 
 
 **Note**
